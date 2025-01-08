@@ -459,7 +459,7 @@
     // -------------------------------------------------------------------
     function parseXlsxFile(file, onComplete) {
       const reader = new FileReader();
-      reader.onload = function(e) {
+      reader.onload = function (e) {
         const data = new Uint8Array(e.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
@@ -480,9 +480,29 @@
         for (let i = 1; i < sheetJson.length; i++) {
           const rowArr = sheetJson[i];
           let rowObj = {};
+
           headers.forEach((hdr, colIndex) => {
-            rowObj[hdr] = rowArr[colIndex] !== undefined ? rowArr[colIndex] : "";
+            let cellValue = rowArr[colIndex];
+
+            // Normalize "Created Date" field
+            if (hdr === 'Created Date' && cellValue) {
+              if (typeof cellValue === 'number') {
+                // Convert Excel numeric date to `dd/mm/yyyy hh:mm:ss`
+                const date = new Date((cellValue - 25569) * 86400 * 1000); // Excel to JS Date
+                const dd = String(date.getDate()).padStart(2, '0');
+                const mm = String(date.getMonth() + 1).padStart(2, '0'); // Month is 0-based
+                const yyyy = date.getFullYear();
+                rowObj[hdr] = `${dd}/${mm}/${yyyy} 01:00:00`; // Add placeholder `hh:mm:ss`
+              } else {
+                // Leave it as-is for valid strings
+                rowObj[hdr] = cellValue;
+              }
+            } else {
+              // Store other fields as-is
+              rowObj[hdr] = cellValue !== undefined ? cellValue : '';
+            }
           });
+
           rowData.push(rowObj);
         }
 
@@ -490,6 +510,8 @@
       };
       reader.readAsArrayBuffer(file);
     }
+
+
 
     // -------------------------------------------------------------------
     // 6) Survey CSV/XLSX Upload
@@ -525,6 +547,49 @@
         console.log("Unsupported file type. Please upload .csv or .xlsx");
       }
     });
+
+    function parseDateString(raw) {
+      if (!raw || !raw.trim()) return null;
+      const s = raw.trim();
+
+      // Split by space, slash, or colon
+      const parts = s.split(/[\s/:]+/);
+      // parts could be [dd, mm, yyyy, hh, mm, ss] or [yyyy, mm, dd, hh, mm, ss]
+
+      if (parts.length < 3) {
+        // Not enough info to parse
+        return null;
+      }
+
+      let dd, mm, yyyy, hh = 0, min = 0, ss = 0;
+      
+      // Decide if first part is <= 31 => dd/mm/yyyy
+      // Otherwise => yyyy/mm/dd
+      if (parseInt(parts[0], 10) <= 31) {
+        // dd/mm/yyyy
+        dd = parseInt(parts[0], 10);
+        mm = parseInt(parts[1], 10) - 1; // zero-based
+        yyyy = parseInt(parts[2], 10);
+        if (parts.length >= 4) hh = parseInt(parts[3], 10);
+        if (parts.length >= 5) min = parseInt(parts[4], 10);
+        if (parts.length >= 6) ss = parseInt(parts[5], 10);
+      } else {
+        // yyyy/mm/dd
+        yyyy = parseInt(parts[0], 10);
+        mm = parseInt(parts[1], 10) - 1;
+        dd = parseInt(parts[2], 10);
+        if (parts.length >= 4) hh = parseInt(parts[3], 10);
+        if (parts.length >= 5) min = parseInt(parts[4], 10);
+        if (parts.length >= 6) ss = parseInt(parts[5], 10);
+      }
+
+      const dateObj = new Date(yyyy, mm, dd);
+      if (isNaN(dateObj.getTime())) {
+        console.warn("Invalid date format:", raw);
+        return null;
+      }
+      return dateObj;
+    }
 
     // This function handles the raw data from either CSV or XLSX
     function handleSurveyData(rawData, rawHeaders) {
@@ -566,6 +631,16 @@
           newRow[cleanedHeader] = row[originalHeader]; 
         });
         return newRow;
+      });
+
+      // 4) Parse date field
+      //    Adjust if your date column is named differently
+      const dateHeader = 'Created Date'; 
+
+      cleanedData.forEach(row => {
+        if (row[dateHeader]) {
+          row[dateHeader] = parseDateString(row[dateHeader]);
+        }
       });
 
       // Then store as global
@@ -1618,24 +1693,24 @@
       });
     }
 
-    function parseDateFromRow(row) {
-      const raw = row['Created Date']?.trim();
-      if (!raw) return null;
-
-      let dateObj = new Date(raw);
-      if (isNaN(dateObj)) {
-        const parts = raw.split(' ');
-        const datePart = parts[0].split('/');
-        if (datePart.length === 3) {
-          const dd = parseInt(datePart[0], 10);
-          const mm = parseInt(datePart[1], 10) - 1;
-          const yyyy = parseInt(datePart[2], 10);
-          dateObj = new Date(yyyy, mm, dd);
-        }
-      }
-      if (isNaN(dateObj)) return null;
-      return dateObj;
-    }
+   // function parseDateFromRow(row) {
+  //    const raw = row['Created Date']?.trim();
+   //   if (!raw) return null;
+//
+   //   let dateObj = new Date(raw);
+  //    if (isNaN(dateObj)) {
+ //       const parts = raw.split(' ');
+  ///      const datePart = parts[0].split('/');
+   //     if (datePart.length === 3 || datePart.length === 6) {
+   //       const dd = parseInt(datePart[0], 10);
+   //       const mm = parseInt(datePart[1], 10) - 1;
+ //         const yyyy = parseInt(datePart[2], 10);
+ //         dateObj = new Date(yyyy, mm, dd);
+ //       }
+ //     }
+ //     if (isNaN(dateObj)) return null;
+  //    return dateObj;
+ //   }
 
     function getMonday(d) {
       const date = new Date(d);
@@ -1690,24 +1765,17 @@
         timelineChart.destroy();
       }
 
-      if (filteredSurveyData.length === 0) {
-        const ctx = document.getElementById('timelineChart').getContext('2d');
-        ctx.clearRect(0, 0, 800, 400);
-        return;
-      }
+      if (filteredSurveyData.length === 0) return;
 
       let validDates = [];
       filteredSurveyData.forEach(row => {
-        const d = parseDateFromRow(row);
-        if (d) {
+        const d = row["Created Date"];
+        if (d instanceof Date && !isNaN(d)) {
           validDates.push({ date: d, row });
         }
       });
-      if (validDates.length === 0) {
-        const ctx = document.getElementById('timelineChart').getContext('2d');
-        ctx.clearRect(0, 0, 800, 400);
-        return;
-      }
+
+      if (validDates.length === 0) return;
 
       validDates.sort((a,b) => a.date - b.date);
       const earliest = validDates[0].date;
