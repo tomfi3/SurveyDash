@@ -13,7 +13,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
 
-  <!-- PapaParse -->
+  <!-- PapaParse (for CSV) -->
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.0/papaparse.min.js"></script>
 
   <!-- Chart.js + DataLabels -->
@@ -23,7 +23,10 @@
   <!-- jsPDF + html2canvas for PDF generation -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.4.0/jspdf.umd.min.js"></script>
   <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"></script>
-  
+
+  <!-- XLSX ADDITION: SheetJS for .xlsx parsing -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.19.1/package/dist/xlsx.full.min.js"></script>
+
   <style>
     /* Example of minimal custom styling mixed with Tailwind classes */
 
@@ -120,7 +123,6 @@
       box-shadow: none;
     }
 
-    /* === NEW TIMELINE CODE START === */
     /* Timeline chart container styling + PDF-resize rules */
     .timeline-chart-container {
       background: #fff;
@@ -141,7 +143,6 @@
       width: 650px !important;
       height: 300px !important;
     }
-    /* === NEW TIMELINE CODE END === */
   </style>
 </head>
 <body class="bg-gray-50 text-gray-800">
@@ -156,7 +157,7 @@
     </h3>
   </div>
 
-  <!-- Filters container (using shadcn/ui-like card + form styling) -->
+  <!-- Filters container -->
   <div 
     id="filters" 
     class="flex flex-wrap items-center justify-center gap-4 bg-white p-4 mx-auto w-full max-w-5xl rounded-lg shadow mb-6"
@@ -164,7 +165,7 @@
     <div class="flex flex-col">
       <label for="ageFilter" class="text-sm font-medium mb-1">Age:</label>
       <select 
-        id="ageFilter" 
+        id="ageFilter"
         class="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-200"
       >
         <option value="all">All</option>
@@ -191,7 +192,7 @@
       </select>
     </div>
 
-    <!-- // WARD FILTER ADDITION START -->
+    <!-- WARD FILTER ADDITION START -->
     <div class="flex flex-col">
       <label for="wardFilter" class="text-sm font-medium mb-1">Ward:</label>
       <select 
@@ -201,7 +202,7 @@
         <option value="all">All</option>
       </select>
     </div>
-    <!-- // WARD FILTER ADDITION END -->
+    <!-- WARD FILTER ADDITION END -->
 
     <button 
       id="applyFilters" 
@@ -214,7 +215,6 @@
   <!-- Page content container -->
   <div class="mx-auto w-full max-w-7xl px-4">
 
-    <!-- === NEW TIMELINE CODE START === -->
     <!-- Timeline Section (below the map, above Respondent Characteristics) -->
     <h2 class="text-2xl font-bold text-gray-700 mb-2">Response Timeline</h2>
     <div 
@@ -240,7 +240,6 @@
         <canvas id="timelineChart"></canvas>
       </div>
     </div>
-    <!-- === NEW TIMELINE CODE END === -->
 
     <!-- Heading for Opinions -->
     <h2 class="text-2xl font-bold text-gray-700 mb-2">Opinions on the Draft AQAP</h2>
@@ -272,14 +271,15 @@
 
     <!-- File upload elements -->
     <div class="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-4">
+      <!-- XLSX ADDITION: Accept both .csv and .xlsx -->
       <div class="flex flex-col">
         <label for="surveyUpload" class="text-sm font-medium mb-1">
-          Upload Survey CSV:
+          Upload Survey Data (.csv or .xlsx):
         </label>
         <input 
           type="file" 
-          id="surveyUpload" 
-          accept=".csv"
+          id="surveyUpload"
+          accept=".csv,.xlsx"
           class="file:mr-4 file:py-2 file:px-4
                  file:rounded-full file:border-0
                  file:text-sm file:font-semibold
@@ -290,7 +290,7 @@
 
       <div class="flex flex-col">
         <label for="paperDemosUpload" class="text-sm font-medium mb-1">
-          Upload paper characteristics:
+          Upload paper characteristics (.csv):
         </label>
         <input 
           type="file" 
@@ -332,6 +332,18 @@
     // -------------------------------------------------------------------
     let paperDemographics = [];
     let boroughDemographics = {};
+
+    // We'll store main survey data here
+    let surveyData = [];
+    let filteredSurveyData = [];
+    let surveyDataLoaded = false;
+    let deepDiveContent = null;
+
+    // Geo data
+    var map;
+    var wardRespondentCounts = {};
+    var geoJsonData = null;
+    var postcodes = [];
 
     // -------------------------------------------------------------------
     // 2) Paper-based Demographics Upload
@@ -441,78 +453,155 @@
       if (val.includes("mixed")) return "Mixed/multiple ethnic groups";
       return "No Answer / Other";
     }
-    
-    function isAnyFilterActive() {
-      // If any of these filter dropdowns ≠ "all," then filters are in use
-      const age = document.getElementById('ageFilter').value;
-      const sex = document.getElementById('sexFilter').value;
-      const capacity = document.getElementById('capacityFilter').value;
-      const ward = document.getElementById('wardFilter').value;
 
-      return (
-        age !== 'all' ||
-        sex !== 'all' ||
-        capacity !== 'all' ||
-        ward !== 'all'
-      );
+    // -------------------------------------------------------------------
+    // 5) XLSX ADDITION: parseXlsxFile function
+    // -------------------------------------------------------------------
+    function parseXlsxFile(file, onComplete) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[firstSheetName];
+
+        // Convert the sheet to "2D array" form
+        const sheetJson = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+        if (sheetJson.length === 0) {
+          onComplete([]);
+          return;
+        }
+
+        // The first row is headers
+        const headers = sheetJson[0];
+        const rowData = [];
+
+        // Build array of objects, one per row
+        for (let i = 1; i < sheetJson.length; i++) {
+          const rowArr = sheetJson[i];
+          let rowObj = {};
+          headers.forEach((hdr, colIndex) => {
+            rowObj[hdr] = rowArr[colIndex] !== undefined ? rowArr[colIndex] : "";
+          });
+          rowData.push(rowObj);
+        }
+
+        onComplete(rowData);
+      };
+      reader.readAsArrayBuffer(file);
     }
 
-
     // -------------------------------------------------------------------
-    // 5) Map setup and data variables
+    // 6) Survey CSV/XLSX Upload
     // -------------------------------------------------------------------
-    var map;
-    var wardRespondentCounts = {};
-    var geoJsonData = null;
-    var postcodes = [];
-    var surveyData = [];
-    var filteredSurveyData = [];
-    var surveyDataLoaded = false;
-    var deepDiveContent = null;
+    document.getElementById('surveyUpload').addEventListener('change', function(event) {
+      var file = event.target.files[0];
+      if (!file) {
+        console.log("No Survey file selected.");
+        return;
+      }
+      console.log('Survey file selected:', file.name);
 
-    // Check data readiness for the map
-    function checkAndRenderMap() {
-      console.log('Checking if data is ready to render map...');
-      console.log('GeoJSON data loaded:', !!geoJsonData);
-      console.log('Postcodes loaded:', postcodes.length > 0);
-      console.log('Survey data loaded:', surveyData.length > 0);
+      // Figure out extension
+      let extension = file.name.split('.').pop().toLowerCase();
 
-      if (geoJsonData && postcodes.length > 0 && surveyData.length > 0) {
-        document.getElementById('map').classList.remove('hidden');
-        if (!map) {
-          initializeMap();
+      if (extension === 'csv') {
+        // Use PapaParse for CSV
+        Papa.parse(file, {
+          header: true,
+          complete: function(results) {
+            handleSurveyData(results.data, results.meta.fields);
+          }
+        });
+      }
+      else if (extension === 'xlsx') {
+        // XLSX ADDITION: Use SheetJS
+        parseXlsxFile(file, function(rowData) {
+          let fields = Object.keys(rowData.length > 0 ? rowData[0] : {});
+          handleSurveyData(rowData, fields);
+        });
+      }
+      else {
+        console.log("Unsupported file type. Please upload .csv or .xlsx");
+      }
+    });
+
+    // This function handles the raw data from either CSV or XLSX
+    function handleSurveyData(rawData, rawHeaders) {
+      console.log('handleSurveyData called with row count:', rawData.length);
+
+      // Step 1: Remove columns with "Analyst notes" or "- other"
+      const filteredHeaders = rawHeaders.filter(header =>
+        !header.toLowerCase().includes("analyst notes") &&
+        !header.toLowerCase().includes("- other")
+      );
+
+      const filteredData = rawData.map(row => {
+        let newRow = {};
+        filteredHeaders.forEach(header => {
+          // Some rows might have undefined keys if XLSX read them differently
+          newRow[header] = (row[header] !== undefined) ? row[header] : "";
+        });
+        return newRow;
+      });
+
+      // Step 2: Clean the headers
+      const cleanedHeaders = filteredHeaders.map(header => {
+        let parts = header.split('-');
+        if (parts.length > 2) {
+          return `${parts[0].trim()} ${parts[2].trim()}`;
         }
-        renderMap();
+        return parts[0].trim();
+      }).map(cleanedHeader =>
+        cleanedHeader
+          .replace(/\?\?+/g, '?')
+          .replace(/[^\w\s?,:]/g, '')
+      );
+
+      // Step 3: Apply cleaned headers
+      const cleanedData = filteredData.map(row => {
+        let newRow = {};
+        cleanedHeaders.forEach((cleanedHeader, index) => {
+          const originalHeader = filteredHeaders[index];
+          newRow[cleanedHeader] = row[originalHeader]; 
+        });
+        return newRow;
+      });
+
+      // Then store as global
+      surveyData = cleanedData;
+      filteredSurveyData = surveyData;
+      surveyDataLoaded = true;
+
+      // Trigger your updates
+      populateFilters();
+      renderSurveyCharts();
+      renderRespondentCharacteristics();
+      checkAndRenderMap();
+      buildTimelineQuestionDropdown();
+      renderTimelineChart();
+
+      // If you also have deepDiveContent loaded
+      if (deepDiveContent != null) {
+        document.getElementById('deep-dive').innerHTML = deepDiveContent;
       }
     }
 
-    // Initialize the Leaflet map
-    function initializeMap() {
-      console.log('Initializing map...');
-      map = L.map('map').setView([51.45, -0.33], 12);
-
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18,
-        attribution: 'Map data &copy; OpenStreetMap contributors'
-      }).addTo(map);
-
-      L.control.scale().addTo(map);
-    }
-
-    function drillDownWard(wardName) {
-      console.log("Drilling down to ward:", wardName);
-      //Set the <select id="wardFilter"> to the chosen wardName
-      // Trigger the same logic as the user clicking "Apply Filters"
-      // (assuming your "applyFilters" button calls `document.getElementById('applyFilters').click()`
-      //  or you can directly call the same code that does the filtering)
-      const wardSelect = document.getElementById('wardFilter');
-      wardSelect.value = wardName;
-      document.getElementById('applyFilters').click();
-    }
-
+    // -------------------------------------------------------------------
+    // 7) Deep Dive HTML load
+    // -------------------------------------------------------------------
+    fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/deepDive.html')
+      .then(response => response.text())
+      .then(htmlContent => {
+        deepDiveContent = htmlContent;
+        if (surveyDataLoaded) {
+          document.getElementById('deep-dive').innerHTML = deepDiveContent;
+        }
+      })
+      .catch(error => console.error('Error loading Deep Dive HTML:', error));
 
     // -------------------------------------------------------------------
-    // 6) Load GeoJSON and Postcodes from GitHub
+    // 8) Load GeoJSON and Postcodes from GitHub
     // -------------------------------------------------------------------
     fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/rmd_wardgeo.geojson')
       .then(response => response.json())
@@ -536,89 +625,6 @@
         });
       })
       .catch(error => console.error('Error loading Postcodes CSV:', error));
-
-    // -------------------------------------------------------------------
-    // 7) Deep Dive HTML load
-    // -------------------------------------------------------------------
-    fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/deepDive.html')
-      .then(response => response.text())
-      .then(htmlContent => {
-        deepDiveContent = htmlContent;
-        if (surveyDataLoaded) {
-          document.getElementById('deep-dive').innerHTML = deepDiveContent;
-        }
-      })
-      .catch(error => console.error('Error loading Deep Dive HTML:', error));
-
-    // -------------------------------------------------------------------
-    // 8) Survey CSV upload
-    // -------------------------------------------------------------------
-    document.getElementById('surveyUpload').addEventListener('change', function(event) {
-      var file = event.target.files[0];
-      console.log('Survey CSV file selected:', file.name);
-
-      Papa.parse(file, {
-        header: true,
-        complete: function(results) {
-          console.log('Survey data loaded');
-          // Step 1: Remove columns with "Analyst notes" or "- other" from headers
-          const headers = results.meta.fields;
-          const filteredHeaders = headers.filter(header => 
-            !header.toLowerCase().includes("analyst notes") &&
-            !header.toLowerCase().includes("- other")
-          );
-
-          const filteredData = results.data.map(row => {
-            let newRow = {};
-            filteredHeaders.forEach(header => {
-              newRow[header] = row[header]; 
-            });
-            return newRow;
-          });
-
-          // Step 2: Clean the headers
-          const cleanedHeaders = filteredHeaders.map(header => {
-            let parts = header.split('-');
-            if (parts.length > 2) {
-              return `${parts[0].trim()} ${parts[2].trim()}`;
-            }
-            return parts[0].trim();
-          }).map(cleanedHeader =>
-            cleanedHeader
-              .replace(/\?\?+/g, '?')
-              .replace(/[^\w\s?,:]/g, '')
-          );
-
-          // Step 3: Apply cleaned headers
-          const cleanedData = filteredData.map(row => {
-            let newRow = {};
-            cleanedHeaders.forEach((cleanedHeader, index) => {
-              const originalHeader = filteredHeaders[index];
-              newRow[cleanedHeader] = row[originalHeader]; 
-            });
-            return newRow;
-          });
-
-          surveyData = cleanedData;
-          filteredSurveyData = surveyData;
-          surveyDataLoaded = true;
-
-          // Trigger updates
-          populateFilters();
-          renderSurveyCharts();
-          renderRespondentCharacteristics();
-          checkAndRenderMap();
-
-          // === NEW TIMELINE CODE: also initialize timeline chart
-          buildTimelineQuestionDropdown(); 
-          renderTimelineChart();
-
-          if (deepDiveContent != null) {
-            document.getElementById('deep-dive').innerHTML = deepDiveContent;
-          }
-        }
-      });
-    });
 
     // -------------------------------------------------------------------
     // 9) Filter controls
@@ -701,15 +707,23 @@
       console.log('Filters populated');
     }
 
+    // IGNORE PAPER IF FILTERED: helper to see if any filter is active
+    function isAnyFilterActive() {
+      const age = document.getElementById('ageFilter').value;
+      const sex = document.getElementById('sexFilter').value;
+      const cap = document.getElementById('capacityFilter').value;
+      const ward = document.getElementById('wardFilter').value;
+      return (age !== 'all' || sex !== 'all' || cap !== 'all' || ward !== 'all');
+    }
+
     document.getElementById('applyFilters').addEventListener('click', function() {
       console.log('Applying filters...');
       var selectedAge = document.getElementById('ageFilter').value;
       var selectedSex = document.getElementById('sexFilter').value;
       var selectedCapacity = document.getElementById('capacityFilter').value;
 
-      // WARD FILTER ADDITION START
+      // WARD FILTER ADDITION
       var selectedWard = document.getElementById('wardFilter').value;
-      // WARD FILTER ADDITION END
 
       filteredSurveyData = surveyData.filter(function(row) {
         var age = row['What was your age last birthday?'] || '';
@@ -724,28 +738,22 @@
 
         var capacity = row['What is the main capacity in which you are responding to this consultation?'] || 'No Answer';
 
-        // WARD FILTER ADDITION START
-        // 1) Grab the row's postcode input
+        // For Ward lookups:
         const rawPostcode = (row["Please tell us your postcode:"] || '').trim().toLowerCase();
-        // 2) Find if there's a match in our postcodes array
         let matchedWard = null;
         if (rawPostcode) {
           matchedWard = postcodes.find(
             p => p.postcode?.toLowerCase() === rawPostcode
           );
         }
-        // If not found, rowWard can be "No Ward" or something similar
         let rowWard = matchedWard ? matchedWard.ward_name : 'No Ward';
-        // WARD FILTER ADDITION END
 
         var matchesAge = (selectedAge === 'all' || age === selectedAge);
         var matchesSex = (selectedSex === 'all' || sex === selectedSex);
         var matchesCapacity = (selectedCapacity === 'all' || capacity === selectedCapacity);
-
-        // WARD FILTER ADDITION START
         var matchesWard = (selectedWard === 'all' || rowWard === selectedWard);
+
         return matchesAge && matchesSex && matchesCapacity && matchesWard;
-        // WARD FILTER ADDITION END
       });
 
       console.log('Filtered survey data length:', filteredSurveyData.length);
@@ -753,14 +761,39 @@
       renderSurveyCharts();
       renderRespondentCharacteristics();
       checkAndRenderMap();
-
-      // === NEW TIMELINE CODE: re-render timeline chart
       renderTimelineChart();
     });
 
     // -------------------------------------------------------------------
     // 10) Render the map
     // -------------------------------------------------------------------
+    function checkAndRenderMap() {
+      console.log('Checking if data is ready to render map...');
+      console.log('GeoJSON data loaded:', !!geoJsonData);
+      console.log('Postcodes loaded:', postcodes.length > 0);
+      console.log('Survey data loaded:', surveyData.length > 0);
+
+      if (geoJsonData && postcodes.length > 0 && surveyData.length > 0) {
+        document.getElementById('map').classList.remove('hidden');
+        if (!map) {
+          initializeMap();
+        }
+        renderMap();
+      }
+    }
+
+    function initializeMap() {
+      console.log('Initializing map...');
+      map = L.map('map').setView([51.45, -0.33], 12);
+
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+        attribution: 'Map data &copy; OpenStreetMap contributors'
+      }).addTo(map);
+
+      L.control.scale().addTo(map);
+    }
+
     function renderMap() {
       console.log('Rendering map...');
       if (!geoJsonData || postcodes.length === 0 || filteredSurveyData.length === 0) {
@@ -795,8 +828,9 @@
         }
       });
 
-      // 2) Process paper data (Postcode or ward)
+      // IGNORE PAPER IF FILTERED
       if (!isAnyFilterActive()) {
+        // 2) Process paper data (Postcode or ward)
         paperDemographics.forEach(function(row) {
           if (row.Question?.trim().toLowerCase() === "postcode") {
             const paperInput = (row.Group || '').trim();
@@ -816,9 +850,10 @@
               wardRespondentCounts[wardName] = (wardRespondentCounts[wardName] || 0) + count;
             }
           }
-        })};
+        });
+      }
 
-      console.log('Ward respondent counts with paper data:', wardRespondentCounts);
+      console.log('Ward respondent counts:', wardRespondentCounts);
 
       // Clear existing layers
       map.eachLayer(function(layer) {
@@ -828,7 +863,9 @@
       });
 
       // Update total responses in the info box
-      document.getElementById('total-responses').textContent = surveyData.length - 1;
+      // note: if you want total only from "filteredSurveyData," do length
+      // or from "surveyData," minus 1, as you had before
+      document.getElementById('total-responses').textContent = filteredSurveyData.length;
 
       // Render the wards
       var geoJsonLayer = L.geoJson(geoJsonData, {
@@ -852,29 +889,27 @@
         onEachFeature: function(feature, layer) {
           var wardName = feature.properties.WD13NM;
           var count = wardRespondentCounts[wardName] || 0;
-          //layer.bindPopup('<b>' + wardName + '</b><br>Respondents: ' + count);
-          // Build a small HTML string for the popup
-          var popupHtml = `
-              <b>${wardName}</b><br>
-              Respondents: ${count}<br><br>
-              <!-- Our new button calls the drillDownWard() function -->
-              <button
-                style="background: #0069D9; color: white; padding: 4px 8px; border: none; border-radius: 4px;"
-                onclick="drillDownWard('${wardName}')"
-              >
-                Drill-Down
-              </button>
-            `;
-          layer.bindPopup(popupHtml);
-          
 
-          // Add a tooltip to show the count as a label on the map
+          // Insert a Drill-Down button if you want
+          var popupHtml = `
+            <b>${wardName}</b><br>
+            Respondents: ${count}<br><br>
+            <button 
+              style="background: #0069D9; color: white; padding: 4px 8px; border: none; border-radius: 4px;"
+              onclick="drillDownWard('${wardName}')"
+            >
+              Drill-Down
+            </button>
+          `;
+          layer.bindPopup(popupHtml);
+
+          // Tooltip with count
           layer.bindTooltip(
-            `${count}`, // The number of responses
+            `${count}`,
             {
-              permanent: true, // Makes the tooltip always visible
-              direction: "center", // Centers the label
-              className: "ward-tooltip", // Add a custom class for styling if needed
+              permanent: true,
+              direction: "center",
+              className: "ward-tooltip",
             }
           );
         }
@@ -896,11 +931,17 @@
         div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #dbffa5;"></span> 0 respondents</div>';
         return div;
       };
-
       legend.addTo(map);
       map.legendControl = legend;
 
       console.log('Map rendered successfully.');
+    }
+
+    // Drill-down function for "Drill-Down" button in popup
+    function drillDownWard(wardName) {
+      console.log("Drilling down to ward:", wardName);
+      document.getElementById('wardFilter').value = wardName;
+      document.getElementById('applyFilters').click();
     }
 
     // -------------------------------------------------------------------
@@ -1173,7 +1214,8 @@
             case 'not answered':
             case "don't know / no opinion":
             case 'prefer not to say':
-              agreeDisagreeCounts['Not Answered']++; break;
+              agreeDisagreeCounts['Not Answered']++;
+              break;
             default:
               agreeDisagreeCounts['Not Answered']++;
           }
@@ -1241,7 +1283,7 @@
                 font: {
                   weight: 'bold'
                 }
-              }
+              },
             },
             scales: {
               y: {
@@ -1269,6 +1311,8 @@
         return;
       }
 
+      let isFiltered = isAnyFilterActive();
+
       // The four questions we want to chart
       var respondentQuestions = [
         "What is the main capacity in which you are responding to this consultation?",
@@ -1285,11 +1329,10 @@
       };
 
       respondentQuestions.forEach(function(question, index) {
-        // (A) Gather raw counts from online + paper
+        // (A) Gather raw counts from online data
         let respondentCounts = {};
         let totalRawCount = 0;
 
-        // 1) from the filtered (online) data
         filteredSurveyData.forEach(function(row) {
           let raw = (row[question] || '').trim().toLowerCase();
 
@@ -1325,33 +1368,35 @@
           totalRawCount++;
         });
 
-        // 2) from the paper-based data
-        paperDemographics.forEach(pRow => {
-          let dashKey = null;
-          if (pRow.Question === "Age" && question === "What was your age last birthday?") {
-            dashKey = "Age";
-          } else if (pRow.Question === "Sex" && question === "What is your sex?") {
-            dashKey = "Sex";
-          } else if (pRow.Question === "Ethnicity" && question === "What is your ethnic group?") {
-            dashKey = "Ethnicity";
-          }
-          // skip if no match
-          if (!dashKey) return;
+        // IGNORE PAPER IF FILTERED
+        if (!isFiltered) {
+          // 2) from the paper-based data
+          paperDemographics.forEach(pRow => {
+            let dashKey = null;
+            if (pRow.Question === "Age" && question === "What was your age last birthday?") {
+              dashKey = "Age";
+            } else if (pRow.Question === "Sex" && question === "What is your sex?") {
+              dashKey = "Sex";
+            } else if (pRow.Question === "Ethnicity" && question === "What is your ethnic group?") {
+              dashKey = "Ethnicity";
+            }
+            if (!dashKey) return;
 
-          // map bracket
-          let mapped;
-          if (dashKey === "Age") {
-            mapped = mapAgeToBracket(pRow.Group);
-          } else if (dashKey === "Sex") {
-            mapped = mapSexToCensusCategory(pRow.Group);
-          } else if (dashKey === "Ethnicity") {
-            mapped = mapEthnicityToCensusCategory(pRow.Group);
-          }
+            // map bracket
+            let mapped;
+            if (dashKey === "Age") {
+              mapped = mapAgeToBracket(pRow.Group);
+            } else if (dashKey === "Sex") {
+              mapped = mapSexToCensusCategory(pRow.Group);
+            } else if (dashKey === "Ethnicity") {
+              mapped = mapEthnicityToCensusCategory(pRow.Group);
+            }
 
-          let count = parseInt(pRow.Count || "0", 10);
-          respondentCounts[mapped] = (respondentCounts[mapped] || 0) + count;
-          totalRawCount += count;
-        });
+            let count = parseInt(pRow.Count || "0", 10);
+            respondentCounts[mapped] = (respondentCounts[mapped] || 0) + count;
+            totalRawCount += count;
+          });
+        }
 
         // (B) Separate out "No Answer" from real categories
         let noAnswerCount = 0;
@@ -1407,11 +1452,10 @@
         // (E) If borough data: side-by-side bars
         if (hasBoroughData) {
           let boroughCats = Object.keys(boroughDemographics[boroughKey]);
-          // combine sets
           let finalLabels = new Set([...sortedLabels, ...boroughCats]);
           finalLabels = Array.from(finalLabels);
 
-          // re-sort if it's Age
+          // Re-sort if it's Age
           if (question === "What was your age last birthday?") {
             const bracketOrder = ["<20","20-24","25-34","35-44","45-54","55-64","65-75","75+"];
             finalLabels.sort((a,b) => bracketOrder.indexOf(a) - bracketOrder.indexOf(b));
@@ -1538,10 +1582,11 @@
       document.body.classList.remove('pdf-resize');
     });
 
-    // === NEW TIMELINE CODE START ===
+    // -------------------------------------------------------------------
+    // 15) Timeline chart
+    // -------------------------------------------------------------------
     let timelineChart = null; // We'll store the Chart.js instance here
 
-    // 1) Helper to remove prefix from question text
     function removePrefix(text) {
       return text
         .replace(/To what extent do you agree or disagree with the\s*/i, '')
@@ -1549,23 +1594,18 @@
         .trim();
     }
 
-    // A function to build the question dropdown for timeline
     function buildTimelineQuestionDropdown() {
       const dropdown = document.getElementById('timelineQuestionSelector');
-
       // Clear existing options except the first
       while (dropdown.options.length > 1) {
         dropdown.remove(1);
       }
 
-      // Gather all possible "agree/disagree" style questions you want to appear
-      // We'll combine the same arrays used for the radar charts
       const allPositivityQuestions = [
         ...overallRadarQuestions,
         ...radarQuestions
       ];
 
-      // Add them as options
       allPositivityQuestions.forEach(q => {
         const opt = document.createElement('option');
         opt.value = q;
@@ -1573,44 +1613,39 @@
         dropdown.appendChild(opt);
       });
 
-      // On change => renderTimelineChart
       dropdown.addEventListener('change', () => {
         renderTimelineChart();
       });
     }
 
-    // Helper: parse date string to a Date object (return null if invalid)
     function parseDateFromRow(row) {
       const raw = row['Created Date']?.trim();
       if (!raw) return null;
 
       let dateObj = new Date(raw);
       if (isNaN(dateObj)) {
-        // Try splitting by space or slash if needed
         const parts = raw.split(' ');
         const datePart = parts[0].split('/');
         if (datePart.length === 3) {
           const dd = parseInt(datePart[0], 10);
-          const mm = parseInt(datePart[1], 10) - 1; // zero-based month
+          const mm = parseInt(datePart[1], 10) - 1;
           const yyyy = parseInt(datePart[2], 10);
           dateObj = new Date(yyyy, mm, dd);
         }
       }
-      if (isNaN(dateObj)) return null; // still invalid
+      if (isNaN(dateObj)) return null;
       return dateObj;
     }
 
-    // Helper: find Monday of a given date
     function getMonday(d) {
       const date = new Date(d);
-      const day = date.getDay(); // Sunday=0, Monday=1...
-      const diff = (day + 6) % 7; // how many days back to get to Monday
+      const day = date.getDay();
+      const diff = (day + 6) % 7;
       date.setDate(date.getDate() - diff);
       date.setHours(0, 0, 0, 0);
       return date;
     }
 
-    // Format date as DD/MM/YY
     function formatDateDDMMYY(d) {
       const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -1618,7 +1653,6 @@
       return `${dd}/${mm}/${yy}`;
     }
 
-    // Returns an array of all Monday dates from earliest Monday to last Monday (inclusive)
     function getAllMondayDatesBetween(start, end) {
       const mondays = [];
       let current = new Date(start);
@@ -1629,7 +1663,6 @@
       return mondays;
     }
 
-    // For a given date, find which Monday is the "start" of that week
     function getWeekIndex(date, allMondays) {
       let idx = -1;
       for (let i = 0; i < allMondays.length; i++) {
@@ -1642,31 +1675,27 @@
       return idx;
     }
 
-    // Function to compute positivity score for a single response
     function getPositivityScore(response) {
       switch (response) {
         case 'strongly agree': return 3;
         case 'agree': return 1;
         case 'disagree': return -1;
         case 'strongly disagree': return -3;
-        default: return null; // neither/blank => ignore
+        default: return null;
       }
     }
 
     function renderTimelineChart() {
-      // Destroy existing chart if any
       if (timelineChart) {
         timelineChart.destroy();
       }
 
       if (filteredSurveyData.length === 0) {
-        // Clear chart area or show "No data" message
         const ctx = document.getElementById('timelineChart').getContext('2d');
         ctx.clearRect(0, 0, 800, 400);
         return;
       }
 
-      // Step 1) Collect all valid dates
       let validDates = [];
       filteredSurveyData.forEach(row => {
         const d = parseDateFromRow(row);
@@ -1675,27 +1704,20 @@
         }
       });
       if (validDates.length === 0) {
-        // No valid dates
         const ctx = document.getElementById('timelineChart').getContext('2d');
         ctx.clearRect(0, 0, 800, 400);
         return;
       }
 
-      // Step 2) Find earliest & latest date
       validDates.sort((a,b) => a.date - b.date);
       const earliest = validDates[0].date;
       const latest = validDates[validDates.length - 1].date;
 
-      // Step 3) Get Monday of earliest date => "Week 1"
       const firstMonday = getMonday(earliest);
-
-      // Step 4) Get Monday of the latest date
       const lastMondayOfRange = getMonday(latest);
 
-      // Step 5) Build an array of all Monday dates from firstMonday to lastMondayOfRange
       const allMondays = getAllMondayDatesBetween(firstMonday, lastMondayOfRange);
 
-      // Step 6) Prepare data structures
       const weeksData = allMondays.map(m => {
         return {
           mondayDate: new Date(m),
@@ -1705,16 +1727,13 @@
         };
       });
 
-      // Step 7) Check if user selected a question -> line chart or bar chart
       const selectedQuestion = document.getElementById('timelineQuestionSelector').value;
 
-      // Step 8) Fill the weeksData
       validDates.forEach(({ date, row }) => {
         const weekIdx = getWeekIndex(date, allMondays);
         if (weekIdx < 0) return;
 
         weeksData[weekIdx].count++;
-
         if (selectedQuestion) {
           const rawResp = (row[selectedQuestion] || '').trim().toLowerCase();
           const score = getPositivityScore(rawResp);
@@ -1725,25 +1744,21 @@
         }
       });
 
-      // Step 9) Prepare chart labels
       const chartLabels = weeksData.map((w, i) => {
         const mainLabel = `Week ${i + 1}`;
         const subLabel = formatDateDDMMYY(w.mondayDate);
         return `${mainLabel}\n${subLabel}`;
       });
 
-      // Step 10) Build the dataset(s)
       let chartType = 'bar';
       let chartData = [];
       let yLabel = '';
 
       if (!selectedQuestion) {
-        // Show bar chart of weekly response counts
         chartType = 'bar';
         chartData = weeksData.map(w => w.count);
         yLabel = 'Number of Responses';
       } else {
-        // Show line chart of average positivity
         chartType = 'line';
         chartData = weeksData.map(w => {
           if (w.positivityCount > 0) {
@@ -1754,7 +1769,6 @@
         yLabel = 'Average Positivity Score';
       }
 
-      // Step 11) Render the Chart
       const ctx = document.getElementById('timelineChart').getContext('2d');
       timelineChart = new Chart(ctx, {
         type: chartType,
@@ -1812,8 +1826,6 @@
         }
       });
     }
-    // === NEW TIMELINE CODE END ===
-
   </script>
 
 </body>
