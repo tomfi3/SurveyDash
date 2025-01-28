@@ -949,9 +949,9 @@
         style: function(feature) {
           var wardName = feature.properties.WD13NM;
           var count = wardRespondentCounts[wardName] || 0;
-          var fillColor = count > 10 ? '#006400' :
-                          count > 5  ? '#228B22' :
-                          count > 2  ? '#32CD32' :
+          var fillColor = count > 12 ? '#006400' :
+                          count > 8  ? '#228B22' :
+                          count > 4  ? '#32CD32' :
                           count > 0  ? '#7FFF00' :
                                        '#dbffa5';
           return {
@@ -1001,10 +1001,10 @@
       var legend = L.control({position: 'topright'});
       legend.onAdd = function(map) {
         var div = L.DomUtil.create('div', 'p-2 bg-white rounded-md shadow text-sm');
-        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #006400;"></span> > 10 respondents</div>';
-        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #228B22;"></span> 6 - 10 respondents</div>';
-        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #32CD32;"></span> 3 - 5 respondents</div>';
-        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #7FFF00;"></span> 1 - 2 respondents</div>';
+        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #006400;"></span> > 12 respondents</div>';
+        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #228B22;"></span> 9 - 12 respondents</div>';
+        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #32CD32;"></span> 5 - 8 respondents</div>';
+        div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #7FFF00;"></span> 1 - 4 respondents</div>';
         div.innerHTML += '<div class="mb-1"><span class="inline-block w-4 h-4 mr-2" style="background: #dbffa5;"></span> 0 respondents</div>';
         return div;
       };
