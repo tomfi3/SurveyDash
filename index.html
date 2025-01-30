@@ -1,6 +1,35 @@
+<!-- 
+CONTENTS
+========
+1. Document Setup
+2. External Dependencies
+3. Custom Styles
+4. Body Structure
+5. Scripts
+   5A. Chart.js Plugin Registration
+   5B. Global Variables
+   5C. Data Loading for Paper Demographics
+   5D. Load Borough Demographics
+   5E. Helper Functions (Age/Sex/Ethnicity Mapping)
+   5F. XLSX Parsing
+   5G. Survey CSV/XLSX Upload
+   5H. Deep Dive Content Loading
+   5I. Load GeoJSON and Postcodes
+   5J. Filter Controls
+   5K. Map Functionality
+   5L. Chart Rendering (Radar, Bar, etc.)
+   5M. Bar Charts for Opinions
+   5N. Respondent Characteristics
+   5O. Page Resize and Print Helpers
+   5P. Timeline Chart
+-->
+
+<!-- SECTION 1: DOCUMENT SETUP -->
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
+  <!-- SECTION 2: EXTERNAL DEPENDENCIES -->
   <!-- Required meta -->
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
@@ -27,10 +56,11 @@
   <!-- XLSX ADDITION: SheetJS for .xlsx parsing -->
   <script src="https://cdn.sheetjs.com/xlsx-0.19.1/package/dist/xlsx.full.min.js"></script>
 
+  <!-- SECTION 3: CUSTOM STYLES -->
   <style>
-    /* Example of minimal custom styling mixed with Tailwind classes */
+    /* Minimal custom styling integrated with Tailwind classes */
 
-    /* Map resizing in "pdf-resize" mode */
+    /* Adjust map sizing when PDF-resize is active */
     .pdf-resize #map {
       height: 500px !important;
     }
@@ -39,7 +69,7 @@
       margin-bottom: 0;
     }
 
-    /* Flexbox for bar charts in the main chart section */
+    /* Bar charts in main chart section */
     #charts {
       display: flex;
       justify-content: center;
@@ -47,20 +77,20 @@
       flex-wrap: wrap;
     }
 
-    /* Flexbox for respondent charts */
+    /* Charts for respondent characteristics */
     #respondent-charts {
       display: flex;
       justify-content: center;
       gap: 20px;
       flex-wrap: wrap;
-      margin: 0 auto; /* Center the content */
+      margin: 0 auto;
     }
 
-    /* General styling for individual chart containers */
+    /* General styling for chart containers */
     .chart-container,
     .radar-chart-container {
       flex: 1;
-      max-width: 45%; /* Restrict individual chart containers to fit side by side */
+      max-width: 45%;
       min-width: 450px;
       padding: 10px;
       background: #fff;
@@ -68,7 +98,6 @@
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     }
 
-    /* Ensure charts scale well */
     .chart-container canvas,
     .radar-chart-container canvas {
       max-width: 100%;
@@ -76,26 +105,22 @@
     }
 
     #radar-charts {
-      display: flex; /* Enable flexbox layout */
-      justify-content: center; /* Center the charts horizontally */
-      gap: 20px; /* Add some space between the charts */
-      flex-wrap: wrap; /* Allow wrapping to the next line if needed */
+      display: flex;
+      justify-content: center;
+      gap: 20px;
+      flex-wrap: wrap;
     }
 
     .radar-chart-container {
-      flex: 1; /* Make containers share available space equally */
-      max-width: 45%; /* Ensure the containers are not too wide */
+      flex: 1;
+      max-width: 45%;
       padding: 10px;
       background: #fff;
       border-radius: 10px;
       box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
     }
 
-    .radar-chart-container canvas {
-      max-width: 100%;
-      height: auto;
-    }
-
+    /* Adjust sizing for radar chart in PDF mode */
     .pdf-resize .radar-chart-container {
       width: 500px !important;
       height: 280px !important;
@@ -123,7 +148,7 @@
       box-shadow: none;
     }
 
-    /* Timeline chart container styling + PDF-resize rules */
+    /* Timeline chart styling */
     .timeline-chart-container {
       background: #fff;
       border-radius: 10px;
@@ -145,8 +170,10 @@
     }
   </style>
 </head>
+
 <body class="bg-gray-50 text-gray-800">
-  
+
+  <!-- SECTION 4: BODY STRUCTURE -->
   <!-- Header / Info Box -->
   <div 
     id="info-box" 
@@ -192,7 +219,6 @@
       </select>
     </div>
 
-    <!-- WARD FILTER ADDITION START -->
     <div class="flex flex-col">
       <label for="wardFilter" class="text-sm font-medium mb-1">Ward:</label>
       <select 
@@ -202,7 +228,6 @@
         <option value="all">All</option>
       </select>
     </div>
-    <!-- WARD FILTER ADDITION END -->
 
     <button 
       id="applyFilters" 
@@ -215,7 +240,7 @@
   <!-- Page content container -->
   <div class="mx-auto w-full max-w-7xl px-4">
 
-    <!-- Timeline Section (below the map, above Respondent Characteristics) -->
+    <!-- Timeline Section -->
     <h2 class="text-2xl font-bold text-gray-700 mb-2">Response Timeline</h2>
     <div 
       id="timeline-section"
@@ -233,7 +258,6 @@
           class="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none"
         >
           <option value="">(Show weekly response count)</option>
-          <!-- We'll fill the question options dynamically in the script below -->
         </select>
       </div>
       <div class="timeline-chart-container mt-4">
@@ -245,7 +269,6 @@
     <h2 class="text-2xl font-bold text-gray-700 mb-2">Opinions on the Draft AQAP</h2>
     <!-- Radar Charts container -->
     <div id="radar-charts" class="flex flex-wrap gap-4 mb-6"></div>
-
     <!-- Bar Charts container -->
     <div id="charts" class="flex flex-wrap gap-4 mb-8"></div>
 
@@ -266,7 +289,7 @@
       id="deep-dive"
       class="bg-white rounded-lg shadow p-4 mb-8"
     >
-      <!-- Deep Dive content will be inserted here -->
+      <!-- Content loaded dynamically -->
     </div>
 
     <!-- File upload elements -->
@@ -322,32 +345,30 @@
     </div>
   </div>
 
-  <!-- Scripts -->
+  <!-- SECTION 5: SCRIPTS -->
   <script>
-    // --- 1) Register the DataLabels plugin with Chart.js globally
+    /* ======================= 
+    5A: Chart.js plugin registration
+    ======================= */
     Chart.register(ChartDataLabels);
 
-    // -------------------------------------------------------------------
-    // 1) Global variables for optional paper-based data + borough data
-    // -------------------------------------------------------------------
+    /* ========================
+    5B: Global variables 
+    =========================*/
     let paperDemographics = [];
     let boroughDemographics = {};
-
-    // We'll store main survey data here
     let surveyData = [];
     let filteredSurveyData = [];
     let surveyDataLoaded = false;
     let deepDiveContent = null;
-
-    // Geo data
     var map;
     var wardRespondentCounts = {};
     var geoJsonData = null;
     var postcodes = [];
 
-    // -------------------------------------------------------------------
-    // 2) Paper-based Demographics Upload
-    // -------------------------------------------------------------------
+    /* =======================
+    5C: Data loading for paper demographics
+    ======================= */
     document.getElementById('paperDemosUpload').addEventListener('change', function(event) {
       const file = event.target.files[0];
       if (!file) {
@@ -361,11 +382,8 @@
         complete: function(results) {
           paperDemographics = results.data; 
           console.log('Paper demographics loaded:', paperDemographics);
-
-          // Re-render the map & demographics charts
           checkAndRenderMap(); 
           renderRespondentCharacteristics();
-          // Also re-render timeline chart
           renderTimelineChart();
         },
         error: function(err) {
@@ -374,9 +392,9 @@
       });
     });
 
-    // -------------------------------------------------------------------
-    // 3) Load Borough Demographics from GitHub CSV
-    // -------------------------------------------------------------------
+    /* =======================
+    5D: Load borough demographics from GitHub CSV
+    ======================= */
     function loadBoroughDemographics() {
       return fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/rmd_demographics.csv')
         .then(response => response.text())
@@ -385,12 +403,10 @@
             Papa.parse(csvText, {
               header: true,
               complete: function(results) {
-                // Each row has { Question, Group, Percentage }
                 results.data.forEach(row => {
                   const question = row.Question?.trim();
                   const group = row.Group?.trim();
                   const pct = parseFloat(row.Percentage);
-
                   if (!boroughDemographics[question]) {
                     boroughDemographics[question] = {};
                   }
@@ -412,9 +428,9 @@
       })
       .catch(error => console.error('Error loading borough demographics:', error));
 
-    // -------------------------------------------------------------------
-    // 4) Helper functions to map Age, Sex, Ethnicity to consistent brackets
-    // -------------------------------------------------------------------
+    /* =======================
+    5E: Helper functions for age/sex/ethnicity mappin
+    ======================= */
     function mapAgeToBracket(ageString) {
       if (!ageString || ageString.toLowerCase().includes("prefer not") || ageString.toLowerCase().includes("no answer")) {
         return "No Answer / Other";
@@ -454,9 +470,9 @@
       return "No Answer / Other";
     }
 
-    // -------------------------------------------------------------------
-    // 5) XLSX ADDITION: parseXlsxFile function
-    // -------------------------------------------------------------------
+    /* =======================
+    5F: XLSX parsing
+    ======================= */
     function parseXlsxFile(file, onComplete) {
       const reader = new FileReader();
       reader.onload = function (e) {
@@ -464,58 +480,42 @@
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-
-        // Convert the sheet to "2D array" form
         const sheetJson = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
         if (sheetJson.length === 0) {
           onComplete([]);
           return;
         }
-
-        // The first row is headers
         const headers = sheetJson[0];
         const rowData = [];
-
-        // Build array of objects, one per row
         for (let i = 1; i < sheetJson.length; i++) {
           const rowArr = sheetJson[i];
           let rowObj = {};
-
           headers.forEach((hdr, colIndex) => {
             let cellValue = rowArr[colIndex];
-
-            // Normalize "Created Date" field
             if (hdr === 'Created Date' && cellValue) {
               if (typeof cellValue === 'number') {
-                // Convert Excel numeric date to `dd/mm/yyyy hh:mm:ss`
-                const date = new Date((cellValue - 25569) * 86400 * 1000); // Excel to JS Date
+                const date = new Date((cellValue - 25569) * 86400 * 1000);
                 const dd = String(date.getDate()).padStart(2, '0');
-                const mm = String(date.getMonth() + 1).padStart(2, '0'); // Month is 0-based
+                const mm = String(date.getMonth() + 1).padStart(2, '0');
                 const yyyy = date.getFullYear();
-                rowObj[hdr] = `${dd}/${mm}/${yyyy} 01:00:00`; // Add placeholder `hh:mm:ss`
+                rowObj[hdr] = `${dd}/${mm}/${yyyy} 01:00:00`;
               } else {
-                // Leave it as-is for valid strings
                 rowObj[hdr] = cellValue;
               }
             } else {
-              // Store other fields as-is
               rowObj[hdr] = cellValue !== undefined ? cellValue : '';
             }
           });
-
           rowData.push(rowObj);
         }
-
         onComplete(rowData);
       };
       reader.readAsArrayBuffer(file);
     }
 
-
-
-    // -------------------------------------------------------------------
-    // 6) Survey CSV/XLSX Upload
-    // -------------------------------------------------------------------
+    /* =======================
+    5G: Survey CSV/XLSX upload
+    ======================= */
     document.getElementById('surveyUpload').addEventListener('change', function(event) {
       var file = event.target.files[0];
       if (!file) {
@@ -523,12 +523,8 @@
         return;
       }
       console.log('Survey file selected:', file.name);
-
-      // Figure out extension
       let extension = file.name.split('.').pop().toLowerCase();
-
       if (extension === 'csv') {
-        // Use PapaParse for CSV
         Papa.parse(file, {
           header: true,
           complete: function(results) {
@@ -537,7 +533,6 @@
         });
       }
       else if (extension === 'xlsx') {
-        // XLSX ADDITION: Use SheetJS
         parseXlsxFile(file, function(rowData) {
           let fields = Object.keys(rowData.length > 0 ? rowData[0] : {});
           handleSurveyData(rowData, fields);
@@ -551,30 +546,19 @@
     function parseDateString(raw) {
       if (!raw || !raw.trim()) return null;
       const s = raw.trim();
-
-      // Split by space, slash, or colon
       const parts = s.split(/[\s/:]+/);
-      // parts could be [dd, mm, yyyy, hh, mm, ss] or [yyyy, mm, dd, hh, mm, ss]
-
       if (parts.length < 3) {
-        // Not enough info to parse
         return null;
       }
-
       let dd, mm, yyyy, hh = 0, min = 0, ss = 0;
-      
-      // Decide if first part is <= 31 => dd/mm/yyyy
-      // Otherwise => yyyy/mm/dd
       if (parseInt(parts[0], 10) <= 31) {
-        // dd/mm/yyyy
         dd = parseInt(parts[0], 10);
-        mm = parseInt(parts[1], 10) - 1; // zero-based
+        mm = parseInt(parts[1], 10) - 1;
         yyyy = parseInt(parts[2], 10);
         if (parts.length >= 4) hh = parseInt(parts[3], 10);
         if (parts.length >= 5) min = parseInt(parts[4], 10);
         if (parts.length >= 6) ss = parseInt(parts[5], 10);
       } else {
-        // yyyy/mm/dd
         yyyy = parseInt(parts[0], 10);
         mm = parseInt(parts[1], 10) - 1;
         dd = parseInt(parts[2], 10);
@@ -582,7 +566,6 @@
         if (parts.length >= 5) min = parseInt(parts[4], 10);
         if (parts.length >= 6) ss = parseInt(parts[5], 10);
       }
-
       const dateObj = new Date(yyyy, mm, dd);
       if (isNaN(dateObj.getTime())) {
         console.warn("Invalid date format:", raw);
@@ -591,26 +574,19 @@
       return dateObj;
     }
 
-    // This function handles the raw data from either CSV or XLSX
     function handleSurveyData(rawData, rawHeaders) {
       console.log('handleSurveyData called with row count:', rawData.length);
-
-      // Step 1: Remove columns with "Analyst notes" or "- other"
       const filteredHeaders = rawHeaders.filter(header =>
         !header.toLowerCase().includes("analyst notes") &&
         !header.toLowerCase().includes("- other")
       );
-
       const filteredData = rawData.map(row => {
         let newRow = {};
         filteredHeaders.forEach(header => {
-          // Some rows might have undefined keys if XLSX read them differently
           newRow[header] = (row[header] !== undefined) ? row[header] : "";
         });
         return newRow;
       });
-
-      // Step 2: Clean the headers
       const cleanedHeaders = filteredHeaders.map(header => {
         let parts = header.split('-');
         if (parts.length > 2) {
@@ -622,8 +598,6 @@
           .replace(/\?\?+/g, '?')
           .replace(/[^\w\s?,:]/g, '')
       );
-
-      // Step 3: Apply cleaned headers
       const cleanedData = filteredData.map(row => {
         let newRow = {};
         cleanedHeaders.forEach((cleanedHeader, index) => {
@@ -632,23 +606,15 @@
         });
         return newRow;
       });
-
-      // 4) Parse date field
-      //    Adjust if your date column is named differently
       const dateHeader = 'Created Date'; 
-
       cleanedData.forEach(row => {
         if (row[dateHeader]) {
           row[dateHeader] = parseDateString(row[dateHeader]);
         }
       });
-
-      // Then store as global
       surveyData = cleanedData;
       filteredSurveyData = surveyData;
       surveyDataLoaded = true;
-      
-      // Trigger your updates
       document.getElementById('timeline-section').classList.remove('hidden');
       document.getElementById('filters').classList.remove('hidden');
       populateFilters();
@@ -657,16 +623,14 @@
       checkAndRenderMap();
       buildTimelineQuestionDropdown();
       renderTimelineChart();
-
-      // If you also have deepDiveContent loaded
       if (deepDiveContent != null) {
         document.getElementById('deep-dive').innerHTML = deepDiveContent;
       }
     }
 
-    // -------------------------------------------------------------------
-    // 7) Deep Dive HTML load
-    // -------------------------------------------------------------------
+    /* =======================
+    5H: Deep Dive content loading
+    ======================= */
     fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/deepDive.html')
       .then(response => response.text())
       .then(htmlContent => {
@@ -677,9 +641,9 @@
       })
       .catch(error => console.error('Error loading Deep Dive HTML:', error));
 
-    // -------------------------------------------------------------------
-    // 8) Load GeoJSON and Postcodes from GitHub
-    // -------------------------------------------------------------------
+    /* =======================
+    5I: Load GeoJSON and Postcodes
+    ======================= */
     fetch('https://raw.githubusercontent.com/tomfi3/rmd_serv/main/rmd_wardgeo.geojson')
       .then(response => response.json())
       .then(data => {
@@ -703,63 +667,48 @@
       })
       .catch(error => console.error('Error loading Postcodes CSV:', error));
 
-    // -------------------------------------------------------------------
-    // 9) Filter controls
-    // -------------------------------------------------------------------
+    /* =======================
+    5J: Filter controls
+    ======================= */
     function populateFilters() {
       console.log('Populating filters...');
       var ageFilter = document.getElementById('ageFilter');
       var sexFilter = document.getElementById('sexFilter');
       var capacityFilter = document.getElementById('capacityFilter');
-
-      // WARD FILTER ADDITION START
       var wardFilter = document.getElementById('wardFilter');
       var wardSet = new Set();
-      // We'll fill wardSet by scanning your postcodes array (which has ward_name)
       postcodes.forEach(pc => {
         if (pc.ward_name && pc.ward_name.trim() !== "") {
           wardSet.add(pc.ward_name.trim());
         }
       });
-      // WARD FILTER ADDITION END
-
       var ages = new Set();
       var sexes = new Set();
       var capacities = new Set();
-
       surveyData.forEach(function(row) {
         var age = row['What was your age last birthday?'] || '';
         if (age.toLowerCase() === 'prefer not to say' || age.trim() === '' || age.toLowerCase() === 'not answered') {
           age = 'No Answer';
         }
         ages.add(age);
-
         var sex = row['What is your sex?'] || '';
         if (sex.toLowerCase() === 'prefer not to say' || sex.trim() === '' || sex.toLowerCase() === 'not answered') {
           sex = 'No Answer';
         }
         sexes.add(sex);
-
         var capacity = row['What is the main capacity in which you are responding to this consultation?'] || '';
         capacities.add(capacity.trim() ? capacity : 'No Answer');
       });
-
-      // Clear existing options
       ageFilter.innerHTML = '<option value="all">All</option>';
       sexFilter.innerHTML = '<option value="all">All</option>';
       capacityFilter.innerHTML = '<option value="all">All</option>';
-
-      // WARD FILTER ADDITION START
       wardFilter.innerHTML = '<option value="all">All</option>';
-      // Convert set to array and sort ward names
       Array.from(wardSet).sort().forEach(ward => {
         var opt = document.createElement('option');
         opt.value = ward;
         opt.textContent = ward;
         wardFilter.appendChild(opt);
       });
-      // WARD FILTER ADDITION END
-
       Array.from(ages).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
         .forEach(function(age) {
           var option = document.createElement('option');
@@ -767,14 +716,12 @@
           option.textContent = age;
           ageFilter.appendChild(option);
         });
-
       Array.from(sexes).forEach(function(sex) {
         var option = document.createElement('option');
         option.value = sex;
         option.textContent = sex;
         sexFilter.appendChild(option);
       });
-
       capacities.forEach(function(capacity) {
         var option = document.createElement('option');
         option.value = capacity;
@@ -784,7 +731,6 @@
       console.log('Filters populated');
     }
 
-    // IGNORE PAPER IF FILTERED: helper to see if any filter is active
     function isAnyFilterActive() {
       const age = document.getElementById('ageFilter').value;
       const sex = document.getElementById('sexFilter').value;
@@ -798,24 +744,17 @@
       var selectedAge = document.getElementById('ageFilter').value;
       var selectedSex = document.getElementById('sexFilter').value;
       var selectedCapacity = document.getElementById('capacityFilter').value;
-
-      // WARD FILTER ADDITION
       var selectedWard = document.getElementById('wardFilter').value;
-
       filteredSurveyData = surveyData.filter(function(row) {
         var age = row['What was your age last birthday?'] || '';
         if (age.toLowerCase() === 'prefer not to say' || age.trim() === '' || age.toLowerCase() === 'not answered') {
           age = 'No Answer';
         }
-
         var sex = row['What is your sex?'] || '';
         if (sex.toLowerCase() === 'prefer not to say' || sex.trim() === '' || sex.toLowerCase() === 'not answered') {
           sex = 'No Answer';
         }
-
         var capacity = row['What is the main capacity in which you are responding to this consultation?'] || 'No Answer';
-
-        // For Ward lookups:
         const rawPostcode = (row["Please tell us your postcode:"] || '').trim().toLowerCase();
         let matchedWard = null;
         if (rawPostcode) {
@@ -824,32 +763,27 @@
           );
         }
         let rowWard = matchedWard ? matchedWard.ward_name : 'No Ward';
-
         var matchesAge = (selectedAge === 'all' || age === selectedAge);
         var matchesSex = (selectedSex === 'all' || sex === selectedSex);
         var matchesCapacity = (selectedCapacity === 'all' || capacity === selectedCapacity);
         var matchesWard = (selectedWard === 'all' || rowWard === selectedWard);
-
         return matchesAge && matchesSex && matchesCapacity && matchesWard;
       });
-
       console.log('Filtered survey data length:', filteredSurveyData.length);
-
       renderSurveyCharts();
       renderRespondentCharacteristics();
       checkAndRenderMap();
       renderTimelineChart();
     });
 
-    // -------------------------------------------------------------------
-    // 10) Render the map
-    // -------------------------------------------------------------------
+    /* =======================
+    5K: Map functionality
+    ======================= */
     function checkAndRenderMap() {
       console.log('Checking if data is ready to render map...');
       console.log('GeoJSON data loaded:', !!geoJsonData);
       console.log('Postcodes loaded:', postcodes.length > 0);
       console.log('Survey data loaded:', surveyData.length > 0);
-
       if (geoJsonData && postcodes.length > 0 && surveyData.length > 0) {
         document.getElementById('map').classList.remove('hidden');
         if (!map) {
@@ -862,12 +796,10 @@
     function initializeMap() {
       console.log('Initializing map...');
       map = L.map('map').setView([51.45, -0.33], 12);
-
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
         attribution: 'Map data &copy; OpenStreetMap contributors'
       }).addTo(map);
-
       L.control.scale().addTo(map);
     }
 
@@ -877,42 +809,28 @@
         console.log('Data not sufficient to render map.');
         return;
       }
-
-      // Reset respondent counts
       wardRespondentCounts = {};
-
-      // 1) Process online data (postcode or ward)
       filteredSurveyData.forEach(function(row) {
         const rawInput = (row["Please tell us your postcode:"] || '').trim();
         if (!rawInput) return;
-
-        // First try matching as a postcode
         let matchedWard = postcodes.find(
           p => p.postcode?.toLowerCase() === rawInput.toLowerCase()
         );
-
-        // If no match, try matching as a ward name
         if (!matchedWard) {
           matchedWard = postcodes.find(
             p => p.ward_name?.toLowerCase() === rawInput.toLowerCase()
           );
         }
-
-        // If either found, increment that ward
         if (matchedWard) {
           const wardName = matchedWard.ward_name;
           wardRespondentCounts[wardName] = (wardRespondentCounts[wardName] || 0) + 1;
         }
       });
-
-      // IGNORE PAPER IF FILTERED
       if (!isAnyFilterActive()) {
-        // 2) Process paper data (Postcode or ward)
         paperDemographics.forEach(function(row) {
           if (row.Question?.trim().toLowerCase() === "postcode") {
             const paperInput = (row.Group || '').trim();
             const count = parseInt(row.Count || "0", 10);
-
             let matchedWard = postcodes.find(
               p => p.postcode?.toLowerCase() === paperInput.toLowerCase()
             );
@@ -921,7 +839,6 @@
                 p => p.ward_name?.toLowerCase() === paperInput.toLowerCase()
               );
             }
-
             if (matchedWard) {
               const wardName = matchedWard.ward_name;
               wardRespondentCounts[wardName] = (wardRespondentCounts[wardName] || 0) + count;
@@ -929,31 +846,22 @@
           }
         });
       }
-
       console.log('Ward respondent counts:', wardRespondentCounts);
-
-      // Clear existing layers
       map.eachLayer(function(layer) {
         if (layer instanceof L.GeoJSON) {
           map.removeLayer(layer);
         }
       });
-
-      // Update total responses in the info box
-      // note: if you want total only from "filteredSurveyData," do length
-      // or from "surveyData," minus 1, as you had before
       document.getElementById('total-responses').textContent = filteredSurveyData.length;
-
-      // Render the wards
       var geoJsonLayer = L.geoJson(geoJsonData, {
         style: function(feature) {
           var wardName = feature.properties.WD13NM;
           var count = wardRespondentCounts[wardName] || 0;
           var fillColor = count > 15 ? '#006400' :
                           count > 10  ? '#228B22' :
-                          count > 5  ? '#32CD32' :
-                          count > 0  ? '#7FFF00' :
-                                       '#dbffa5';
+                          count > 5   ? '#32CD32' :
+                          count > 0   ? '#7FFF00' :
+                                        '#dbffa5';
           return {
             fillColor: fillColor,
             weight: 2,
@@ -966,8 +874,6 @@
         onEachFeature: function(feature, layer) {
           var wardName = feature.properties.WD13NM;
           var count = wardRespondentCounts[wardName] || 0;
-
-          // Insert a Drill-Down button if you want
           var popupHtml = `
             <b>${wardName}</b><br>
             Respondents: ${count}<br><br>
@@ -979,8 +885,6 @@
             </button>
           `;
           layer.bindPopup(popupHtml);
-
-          // Tooltip with count
           layer.bindTooltip(
             `${count}`,
             {
@@ -991,13 +895,9 @@
           );
         }
       }).addTo(map);
-
-      // Remove existing legend if any
       if (map.legendControl) {
         map.removeControl(map.legendControl);
       }
-
-      // Add legend
       var legend = L.control({position: 'topright'});
       legend.onAdd = function(map) {
         var div = L.DomUtil.create('div', 'p-2 bg-white rounded-md shadow text-sm');
@@ -1010,20 +910,18 @@
       };
       legend.addTo(map);
       map.legendControl = legend;
-
       console.log('Map rendered successfully.');
     }
 
-    // Drill-down function for "Drill-Down" button in popup
     function drillDownWard(wardName) {
       console.log("Drilling down to ward:", wardName);
       document.getElementById('wardFilter').value = wardName;
       document.getElementById('applyFilters').click();
     }
 
-    // -------------------------------------------------------------------
-    // 11) Radar chart arrays + rendering
-    // -------------------------------------------------------------------
+    /* =======================
+    5L: Chart rendering (Radar, Bar, etc.)
+    ======================= */
     var radarQuestions = [
       "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: Tacking Climate Action and Air Quality Action Together",
       "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: Active Travel and Transport",
@@ -1040,7 +938,6 @@
       "Our Green Spaces and Amenities",
       "The Future of Air Pollution"
     ];
-
     var overallRadarQuestions = [
       "To what extent do you agree or disagree with the overall strategy of targeting action on the areas of highest pollution and exposure, and the groups of people who will most benefit from reduced air pollution exposure?",
       "To what extent do you agree or disagree with the locations targeted for action?",
@@ -1062,7 +959,6 @@
         console.log('No data to render radar chart.');
         return;
       }
-
       var scores = [];
       radarQuestions.forEach(function(question) {
         var totalScore = 0;
@@ -1086,12 +982,10 @@
         var averageScore = respondentCount > 0 ? totalScore / respondentCount : 0;
         scores.push(averageScore);
       });
-
       var radarChartContainer = document.createElement('div');
       radarChartContainer.className = 'radar-chart-container bg-white rounded-lg shadow p-4 w-full md:w-1/2';
       radarChartContainer.innerHTML = '<h4 class="text-lg font-semibold mb-2">Average Scores for Themes</h4><canvas id="radarChart"></canvas>';
       document.getElementById('radar-charts').appendChild(radarChartContainer);
-
       var ctx = document.getElementById('radarChart').getContext('2d');
       new Chart(ctx, {
         type: 'radar',
@@ -1131,7 +1025,6 @@
           }
         }
       });
-
       console.log('Radar chart rendered.');
     }
 
@@ -1141,7 +1034,6 @@
         console.log('No data to render overall radar chart.');
         return;
       }
-
       var scores = [];
       overallRadarQuestions.forEach(function(question) {
         var totalScore = 0;
@@ -1165,12 +1057,10 @@
         var averageScore = respondentCount > 0 ? totalScore / respondentCount : 0;
         scores.push(averageScore);
       });
-
       var overallRadarChartContainer = document.createElement('div');
       overallRadarChartContainer.className = 'radar-chart-container bg-white rounded-lg shadow p-4 w-full md:w-1/2';
       overallRadarChartContainer.innerHTML = '<h4 class="text-lg font-semibold mb-2">Overall Agreement</h4><canvas id="overallRadarChart"></canvas>';
       document.getElementById('radar-charts').appendChild(overallRadarChartContainer);
-
       var ctx = document.getElementById('overallRadarChart').getContext('2d');
       new Chart(ctx, {
         type: 'radar',
@@ -1210,28 +1100,22 @@
           }
         }
       });
-
       console.log('Overall radar chart rendered.');
     }
 
-    // -------------------------------------------------------------------
-    // 12) Render bar charts for opinions
-    // -------------------------------------------------------------------
+    /* =======================
+    5M: Bar charts for opinions
+    ======================= */
     function renderSurveyCharts() {
       console.log('Rendering survey charts...');
       if (filteredSurveyData.length === 0) {
         console.log('No data to render survey charts.');
         return;
       }
-
-      // Clear existing radar charts
       document.getElementById('radar-charts').innerHTML = '';
       renderOverallRadarChart();
       renderRadarChart();
-
-      // Clear existing bar charts
       document.getElementById('charts').innerHTML = '';
-
       var overallRadarQuestions = [
         "To what extent do you agree or disagree with the overall strategy of targeting action on the areas of highest pollution and exposure, and the groups of people who will most benefit from reduced air pollution exposure?",
         "To what extent do you agree or disagree with the locations targeted for action?",
@@ -1239,7 +1123,6 @@
         "To what extent do you agree or disagree with the transport measures outlined for the target locations?",
         "To what extent do you agree or disagree with the groups of people targeted for action?"
       ];
-
       var radarQuestions = [
         "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: Tacking Climate Action and Air Quality Action Together",
         "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: Active Travel and Transport",
@@ -1248,9 +1131,7 @@
         "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: Our Green Spaces and Amenities",
         "To what extent do you agree or disagree that the following themes should be focussed on in the action plan: The Future of Air Pollution in Richmond"
       ];
-
       var agreeDisagreeQuestions = [...overallRadarQuestions, ...radarQuestions];
-
       var overallRadarLabels = [
         "Overall Strategy",
         "Locations Targeted",
@@ -1267,7 +1148,6 @@
         "The Future of Air Pollution"
       ];
       var chartTitles = [...overallRadarLabels, ...radarLabels];
-
       agreeDisagreeQuestions.forEach(function(question, index) {
         var agreeDisagreeCounts = {
           'Strongly Disagree': 0,
@@ -1277,7 +1157,6 @@
           'Strongly Agree': 0,
           'Not Answered': 0
         };
-
         filteredSurveyData.forEach(function(row) {
           var response = (row[question] || '').trim().toLowerCase();
           switch (response) {
@@ -1297,14 +1176,10 @@
               agreeDisagreeCounts['Not Answered']++;
           }
         });
-
-        // Create chart container
         var chartContainer = document.createElement('div');
         chartContainer.className = 'chart-container bg-white rounded-lg shadow p-4 w-full md:w-[32rem]';
         chartContainer.innerHTML = '<h4 class="text-lg font-semibold mb-2">' + chartTitles[index] + '</h4><canvas id="chart' + index + '"></canvas>';
         document.getElementById('charts').appendChild(chartContainer);
-
-        // Create chart data
         var ctx = document.getElementById('chart' + index).getContext('2d');
         new Chart(ctx, {
           type: 'bar',
@@ -1371,49 +1246,36 @@
           }
         });
       });
-
       console.log('Survey charts rendered.');
     }
 
-    // -------------------------------------------------------------------
-    // 13) The revised Respondent Characteristics function
-    // -------------------------------------------------------------------
+    /* =======================
+    5N: Respondent characteristics
+    ======================= */
     function renderRespondentCharacteristics() {
       console.log('Rendering respondent characteristics charts...');
-      // Clear existing respondent charts
       document.getElementById('respondent-charts').innerHTML = '';
-
       if (filteredSurveyData.length === 0) {
         console.log('No data to render respondent characteristics charts.');
         return;
       }
-
       let isFiltered = isAnyFilterActive();
-
-      // The four questions we want to chart
       var respondentQuestions = [
         "What is the main capacity in which you are responding to this consultation?",
         "What was your age last birthday?",
         "What is your sex?",
         "What is your ethnic group?"
       ];
-
-      // Mapping from dashboard question to borough demographics key
       const questionToBoroughKey = {
         "What was your age last birthday?": "Age",
         "What is your sex?": "Sex",
         "What is your ethnic group?": "Ethnicity"
       };
-
       respondentQuestions.forEach(function(question, index) {
-        // (A) Gather raw counts from online data
         let respondentCounts = {};
         let totalRawCount = 0;
-
         filteredSurveyData.forEach(function(row) {
           let raw = (row[question] || '').trim().toLowerCase();
-
-          // Lump blank/prefer not => "no answer"
           if (
             (question === "What was your age last birthday?" ||
              question === "What is your sex?" ||
@@ -1422,8 +1284,6 @@
           ) {
             raw = 'no answer';
           }
-
-          // Map to bracket if relevant
           let mapped = raw;
           if (questionToBoroughKey[question]) {
             if (question === "What was your age last birthday?") {
@@ -1440,14 +1300,10 @@
               mapped = row[question].trim();
             }
           }
-
           respondentCounts[mapped] = (respondentCounts[mapped] || 0) + 1;
           totalRawCount++;
         });
-
-        // IGNORE PAPER IF FILTERED
         if (!isFiltered) {
-          // 2) from the paper-based data
           paperDemographics.forEach(pRow => {
             let dashKey = null;
             if (pRow.Question === "Age" && question === "What was your age last birthday?") {
@@ -1458,8 +1314,6 @@
               dashKey = "Ethnicity";
             }
             if (!dashKey) return;
-
-            // map bracket
             let mapped;
             if (dashKey === "Age") {
               mapped = mapAgeToBracket(pRow.Group);
@@ -1468,14 +1322,11 @@
             } else if (dashKey === "Ethnicity") {
               mapped = mapEthnicityToCensusCategory(pRow.Group);
             }
-
             let count = parseInt(pRow.Count || "0", 10);
             respondentCounts[mapped] = (respondentCounts[mapped] || 0) + count;
             totalRawCount += count;
           });
         }
-
-        // (B) Separate out "No Answer" from real categories
         let noAnswerCount = 0;
         if (respondentCounts['No Answer']) {
           noAnswerCount += respondentCounts['No Answer'];
@@ -1483,11 +1334,7 @@
         if (respondentCounts['No Answer / Other']) {
           noAnswerCount += respondentCounts['No Answer / Other'];
         }
-
-        // validAnswers = total raw minus noAnswer lumps
         let validAnswers = totalRawCount - noAnswerCount;
-
-        // Build a new object for only real categories
         let validCounts = {};
         for (let cat in respondentCounts) {
           if (cat.toLowerCase().includes('no answer')) {
@@ -1495,8 +1342,6 @@
           }
           validCounts[cat] = respondentCounts[cat];
         }
-
-        // (C) Convert real categories to percentages 
         for (let cat in validCounts) {
           if (validAnswers > 0) {
             validCounts[cat] = (validCounts[cat] / validAnswers) * 100;
@@ -1504,49 +1349,36 @@
             validCounts[cat] = 0;
           }
         }
-
-        // (D) Sort categories & prepare chart container
         let sortedLabels = Object.keys(validCounts);
         if (question === "What was your age last birthday?") {
-          // bracket order
           const bracketOrder = ["<20","20-24","25-34","35-44","45-54","55-64","65-75","75+"];
           sortedLabels.sort((a,b) => bracketOrder.indexOf(a) - bracketOrder.indexOf(b));
         } else {
           sortedLabels.sort();
         }
-
-        // Create a chart container
         let chartContainer = document.createElement('div');
         chartContainer.className = 'chart-container bg-white rounded-lg shadow p-4 w-full md:w-[32rem]';
         let answersNote = `<p class="text-sm text-gray-500 mb-2"><i>Answers given: ${validAnswers}</i></p>`;
         chartContainer.innerHTML = `<h4 class="text-lg font-semibold mb-1">${question}</h4>${answersNote}<canvas id="respondentChart${index}"></canvas>`;
         document.getElementById('respondent-charts').appendChild(chartContainer);
-
-        // Check if there's borough data
         let boroughKey = questionToBoroughKey[question];
         let hasBoroughData = boroughKey && boroughDemographics[boroughKey];
-
-        // (E) If borough data: side-by-side bars
         if (hasBoroughData) {
           let boroughCats = Object.keys(boroughDemographics[boroughKey]);
           let finalLabels = new Set([...sortedLabels, ...boroughCats]);
           finalLabels = Array.from(finalLabels);
-
-          // Re-sort if it's Age
           if (question === "What was your age last birthday?") {
             const bracketOrder = ["<20","20-24","25-34","35-44","45-54","55-64","65-75","75+"];
             finalLabels.sort((a,b) => bracketOrder.indexOf(a) - bracketOrder.indexOf(b));
           } else {
             finalLabels.sort();
           }
-
           let surveyDataVals = [];
           let boroughDataVals = [];
           finalLabels.forEach(cat => {
             surveyDataVals.push(validCounts[cat] || 0);
             boroughDataVals.push(boroughDemographics[boroughKey][cat] || 0);
           });
-
           let ctx = document.getElementById(`respondentChart${index}`).getContext('2d');
           new Chart(ctx, {
             type: 'bar',
@@ -1598,7 +1430,6 @@
             }
           });
         } else {
-          // (F) No borough data => single bar
           let chartData = sortedLabels.map(cat => validCounts[cat]);
           let ctx2 = document.getElementById(`respondentChart${index}`).getContext('2d');
           new Chart(ctx2, {
@@ -1644,9 +1475,9 @@
       console.log('Respondent characteristics charts rendered (excluding No Answer).');
     }
 
-    // -------------------------------------------------------------------
-    // 14) Page resize buttons
-    // -------------------------------------------------------------------
+    /* =======================
+    5O: Page resize and print helpers
+    ======================= */
     document.getElementById('resizePage').addEventListener('click', function() {
       document.body.style.width = '800px';
       document.body.style.margin = '0 auto';
@@ -1659,11 +1490,10 @@
       document.body.classList.remove('pdf-resize');
     });
 
-    // -------------------------------------------------------------------
-    // 15) Timeline chart
-    // -------------------------------------------------------------------
-    let timelineChart = null; // We'll store the Chart.js instance here
-
+    /* =======================
+    5P: Timeline chart
+    ======================= */
+    let timelineChart = null;
     function removePrefix(text) {
       return text
         .replace(/To what extent do you agree or disagree with the\s*/i, '')
@@ -1673,46 +1503,23 @@
 
     function buildTimelineQuestionDropdown() {
       const dropdown = document.getElementById('timelineQuestionSelector');
-      // Clear existing options except the first
       while (dropdown.options.length > 1) {
         dropdown.remove(1);
       }
-
       const allPositivityQuestions = [
         ...overallRadarQuestions,
         ...radarQuestions
       ];
-
       allPositivityQuestions.forEach(q => {
         const opt = document.createElement('option');
         opt.value = q;
         opt.textContent = removePrefix(q);
         dropdown.appendChild(opt);
       });
-
       dropdown.addEventListener('change', () => {
         renderTimelineChart();
       });
     }
-
-   // function parseDateFromRow(row) {
-  //    const raw = row['Created Date']?.trim();
-   //   if (!raw) return null;
-//
-   //   let dateObj = new Date(raw);
-  //    if (isNaN(dateObj)) {
- //       const parts = raw.split(' ');
-  ///      const datePart = parts[0].split('/');
-   //     if (datePart.length === 3 || datePart.length === 6) {
-   //       const dd = parseInt(datePart[0], 10);
-   //       const mm = parseInt(datePart[1], 10) - 1;
- //         const yyyy = parseInt(datePart[2], 10);
- //         dateObj = new Date(yyyy, mm, dd);
- //       }
- //     }
- //     if (isNaN(dateObj)) return null;
-  //    return dateObj;
- //   }
 
     function getMonday(d) {
       const date = new Date(d);
@@ -1761,15 +1568,12 @@
         default: return null;
       }
     }
-    
 
     function renderTimelineChart() {
       if (timelineChart) {
         timelineChart.destroy();
       }
-
       if (filteredSurveyData.length === 0) return;
-
       let validDates = [];
       filteredSurveyData.forEach(row => {
         const d = row["Created Date"];
@@ -1777,18 +1581,13 @@
           validDates.push({ date: d, row });
         }
       });
-
       if (validDates.length === 0) return;
-
       validDates.sort((a,b) => a.date - b.date);
       const earliest = validDates[0].date;
       const latest = validDates[validDates.length - 1].date;
-
       const firstMonday = getMonday(earliest);
       const lastMondayOfRange = getMonday(latest);
-
       const allMondays = getAllMondayDatesBetween(firstMonday, lastMondayOfRange);
-
       const weeksData = allMondays.map(m => {
         return {
           mondayDate: new Date(m),
@@ -1797,13 +1596,10 @@
           positivityCount: 0
         };
       });
-
       const selectedQuestion = document.getElementById('timelineQuestionSelector').value;
-
       validDates.forEach(({ date, row }) => {
         const weekIdx = getWeekIndex(date, allMondays);
         if (weekIdx < 0) return;
-
         weeksData[weekIdx].count++;
         if (selectedQuestion) {
           const rawResp = (row[selectedQuestion] || '').trim().toLowerCase();
@@ -1814,17 +1610,14 @@
           }
         }
       });
-
       const chartLabels = weeksData.map((w, i) => {
         const mainLabel = `Week ${i + 1}`;
         const subLabel = formatDateDDMMYY(w.mondayDate);
         return `${mainLabel}\n${subLabel}`;
       });
-
       let chartType = 'bar';
       let chartData = [];
       let yLabel = '';
-
       if (!selectedQuestion) {
         chartType = 'bar';
         chartData = weeksData.map(w => w.count);
@@ -1839,7 +1632,6 @@
         });
         yLabel = 'Average Positivity Score';
       }
-
       const ctx = document.getElementById('timelineChart').getContext('2d');
       timelineChart = new Chart(ctx, {
         type: chartType,
@@ -1898,6 +1690,5 @@
       });
     }
   </script>
-
 </body>
 </html>
